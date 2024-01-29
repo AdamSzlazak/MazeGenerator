@@ -1,268 +1,658 @@
+import pygame
+import time
+from queueHelper import PriorityQueue, AStarQueue
+from math import inf
 import random
-import sys
-from tkinter import *
-from tkinter import messagebox
-from tkinter.font import Font
-
-import constants
-from constants import T
+from collections import deque
+from constants import colors, constants
+from node import Node
+from button import Button
 
 
-class MainFrame:
-    def __init__(self, master):
-        # Settings
-        self.width_of_window = constants.WINDOW_WIDTH
-        self.height_of_window = constants.WINDOW_HEIGHT
-        self.maze_width = 0
-        self.maze_height = 0
-        self.block_height = 0
-        self.canvas = None
-        self.zero_amount = 0
-        self.cur_x = 1
-        self.cur_y = 1
-        self.direction = 0
-        self.path_list = []
-        self.elem_list = []
-        self.solution_show = True
-        self.main_title = T.MAZE
+grid = []
+for row in range(constants.ROWS):
+    grid.append([])
+    for column in range(constants.ROWS):
+        grid[row].append(Node("blank"))
 
-        self.master = master
-        master.title(self.main_title)
-        master.bind("<KeyPress>", self.press)
+START_POINT = (
+    random.randrange(2, constants.ROWS - 1, 2) - 1,
+    random.randrange(2, constants.ROWS - 1, 2) - 1,
+)
+END = (
+    random.randrange(2, constants.ROWS - 1, 2),
+    random.randrange(2, constants.ROWS - 1, 2),
+)
 
-        self.center()
+grid[START_POINT[0]][START_POINT[1]].update(nodetype="start")
+grid[END[0]][END[1]].update(nodetype="end")
 
-        self.main_panel = PanedWindow(master, orient=VERTICAL)
-        self.main_panel.pack()
-        self.main_panel.place(rely=0.5, relx=0.5, anchor="center")
-        self.my_font = Font(family=constants.FONT, size=15)
-        self.label = Label(master, text=T.MAIN_TEXT, font=self.my_font)
-        self.main_panel.add(self.label)
+path_found = False
+algorithm_run = False
 
-        self.x_panel = PanedWindow(master, orient=HORIZONTAL)
-        self.x_label = Label(master, text="Width :\t", font=self.my_font)
-        self.x_entry = Entry(master, font=self.my_font)
-        self.x_panel.add(self.x_label)
-        self.x_panel.add(self.x_entry)
+pygame.init()
 
-        self.y_panel = PanedWindow(master, orient=HORIZONTAL)
-        self.y_label = Label(master, text="Height :\t", font=self.my_font)
-        self.y_entry = Entry(master, font=self.my_font)
-        self.y_panel.add(self.y_label)
-        self.y_panel.add(self.y_entry)
+FONT = pygame.font.SysFont("arial", 6)
 
-        self.x_entry.focus()
+SCREEN_WIDTH = (
+    constants.ROWS * (constants.WIDTH + constants.CELL_MARGIN)
+    + constants.CELL_MARGIN * 2
+)
+SCREEN_HEIGHT = SCREEN_WIDTH + constants.BUTTON_HEIGHT * 3
+WINDOW_SIZE = (SCREEN_WIDTH, SCREEN_HEIGHT)
+screen = pygame.display.set_mode(WINDOW_SIZE)
 
-        self.t_btn = Button(text=T.SHOW_SOLUTION, width=12, command=self.toggle)
-        self.t_btn.pack(pady=5)
+mazeButton = Button(
+    colors.GREY,
+    0,
+    SCREEN_WIDTH,
+    SCREEN_WIDTH / 3,
+    constants.BUTTON_HEIGHT * 3,
+    "Generate maze",
+)
+resetButton = Button(
+    colors.GREY,
+    SCREEN_WIDTH / 3,
+    SCREEN_WIDTH,
+    SCREEN_WIDTH / 3,
+    constants.BUTTON_HEIGHT * 3,
+    "Reset",
+)
+dijkstraButton = Button(
+    colors.GREY,
+    (SCREEN_WIDTH / 3) * 2,
+    SCREEN_WIDTH,
+    SCREEN_WIDTH / 3,
+    constants.BUTTON_HEIGHT,
+    "Dijkstra",
+)
+dfsButton = Button(
+    colors.GREY,
+    (SCREEN_WIDTH / 3) * 2,
+    SCREEN_WIDTH + constants.BUTTON_HEIGHT,
+    SCREEN_WIDTH / 3,
+    constants.BUTTON_HEIGHT,
+    "DFS",
+)
+bfsButton = Button(
+    colors.GREY,
+    (SCREEN_WIDTH / 3) * 2,
+    SCREEN_WIDTH + (constants.BUTTON_HEIGHT * 2),
+    SCREEN_WIDTH / 3,
+    constants.BUTTON_HEIGHT,
+    "BFS",
+)
 
-        self.button = Button(
-            master, text=T.GENERATE, command=self.generate, font=self.my_font
-        )
+pygame.display.set_caption("Pathfinder")
 
-        self.main_panel.add(self.x_panel)
-        self.main_panel.add(self.y_panel)
-        self.main_panel.add(self.t_btn)
-        self.main_panel.add(self.button)
+done = False
 
-    def toggle(self):
-        self.solution_show = not self.solution_show
-        text = T.SHOW_SOLUTION if self.solution_show else T.DONT_SHOW_SOLUTION
-        self.t_btn.config(text=text)
+clock = pygame.time.Clock()
 
-    def press(self, e):
-        if e.keysym == "Escape":
-            self.restart()
-        if e.keysym == "Return":
-            self.generate()
+while not done:
+    # region main loop
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            done = True
 
-    def restart(self):
-        self.canvas and self.canvas.destroy()
-        self.__init__(self.master)
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            pos = pygame.mouse.get_pos()
+            pressed = pygame.key.get_pressed()
 
-    def center(self):
-        screen_width = self.master.winfo_screenwidth()
-        screen_height = self.master.winfo_screenheight()
+            if dijkstraButton.isOver(pos):
+                clear_visited()
+                update_gui(draw_background=False, draw_buttons=False)
+                pygame.display.flip()
+                path_found = dijkstra(grid, START_POINT, END)
+                grid[START_POINT[0]][START_POINT[1]].update(nodetype="start")
+                algorithm_run = "dijkstra"
 
-        x_coordinate = (screen_width / 2) - (self.width_of_window / 2)
-        y_coordinate = (screen_height / 2) - (self.height_of_window / 2)
+            elif dfsButton.isOver(pos):
+                clear_visited()
+                update_gui(draw_background=False, draw_buttons=False)
+                pygame.display.flip()
+                path_found = xfs(grid, START_POINT, END, x="d")
+                grid[START_POINT[0]][START_POINT[1]].update(nodetype="start")
+                algorithm_run = "dfs"
 
-        self.master.geometry(
-            "%dx%d+%d+%d"
-            % (self.width_of_window, self.height_of_window, x_coordinate, y_coordinate)
-        )
+            elif bfsButton.isOver(pos):
+                clear_visited()
+                update_gui(draw_background=False, draw_buttons=False)
+                pygame.display.flip()
+                path_found = xfs(grid, START_POINT, END, x="b")
+                grid[START_POINT[0]][START_POINT[1]].update(nodetype="start")
+                algorithm_run = "bfs"
 
-    def generate(self):
-        if (
-            int(self.x_entry.get()) <= 1
-            or int(self.x_entry.get()) > 128
-            or int(self.x_entry.get()) <= 1
-            or int(self.x_entry.get()) > 128
-        ):
-            messagebox.showerror("Error", T.ALLOWED_SIZE_LIMIT)
-        else:
-            self.maze_width = int(self.x_entry.get()) * 2 + 1
-            self.maze_height = int(self.y_entry.get()) * 2 + 1
+            elif resetButton.isOver(pos):
+                path_found = False
+                algorithm_run = False
+                for row in range(constants.ROWS):
+                    for column in range(constants.ROWS):
+                        if (row, column) != START_POINT and (row, column) != END:
+                            grid[row][column].update(
+                                nodetype="blank", is_visited=False, is_path=False
+                            )
 
-            self.main_panel.destroy()
+            elif mazeButton.isOver(pos):
+                path_found = False
+                algorithm_run = False
+                for row in range(constants.ROWS):
+                    for column in range(constants.ROWS):
+                        if (row, column) != START_POINT and (row, column) != END:
+                            grid[row][column].update(
+                                nodetype="blank", is_visited=False, is_path=False
+                            )
+                grid = prim()
+    # endregion
+    # region Game logic
 
-            self.block_height = int(
-                (self.master.winfo_screenheight() - 150) / self.maze_height
-            )
-            self.width_of_window = self.block_height * self.maze_width
-            self.height_of_window = self.block_height * self.maze_height
-
-            self.can = Canvas(
-                self.master,
-                width=self.master.winfo_screenwidth(),
-                height=self.master.winfo_screenheight(),
-            )
-            self.can.pack(expand=YES, fill=BOTH)
-
-            self.center()
-
-            for i in range(0, self.maze_width):
-                self.elem_list.append([])
-                for j in range(0, self.maze_height):
-                    if (
-                        i in [0, self.maze_width - 1]
-                        or j in [0, self.maze_height - 1]
-                        or i % 2 == 0
-                        or j % 2 == 0
-                    ):
-                        self.elem_list[i].append(1)
-                    else:
-                        self.elem_list[i].append(0)
-
-            self.zero_amount = int(self.x_entry.get()) * int(self.y_entry.get())
-            self.find_path()
-            self.elem_list[self.maze_height - 2][self.maze_width - 2] = 4
-
-            if self.solution_show:
-                self.solution(1, 1)
-            else:
-                self.draw_labyrinth()
-
-    def solution(self, x, y):
-        maze = self.elem_list
-        if (
-            x in [0, self.maze_height]
-            or y in [0, self.maze_width]
-            or maze[x][y] in [1, 5]
-        ):
-            return 0
-        if maze[x][y] == 4:
-            maze[x][y] = 5
-            self.draw_labyrinth()
-            maze[x][y] = 4
-            return 1
-
-        t = maze[x][y]
-        maze[x][y] = 5
-        self.solution(x + 1, y)
-        self.solution(x - 1, y)
-        self.solution(x, y + 1)
-        self.solution(x, y - 1)
-        maze[x][y] = t
-
-        return 0
-
-    def draw_labyrinth(self):
-        for i in range(0, self.maze_width):
-            for j in range(0, self.maze_height):
-                args = [
-                    i * self.block_height,
-                    j * self.block_height,
-                    (i + 1) * self.block_height,
-                    (j + 1) * self.block_height,
-                ]
-                kwargs = {}
-                if self.elem_list[i][j] == 1:
-                    kwargs["fill"] = constants.WALL_COLOR
-                elif self.elem_list[i][j] == 5:
-                    kwargs["fill"] = constants.PATH_COLOR
+    def clear_visited():
+        excluded_nodetypes = ["start", "end", "wall", "mud"]
+        for row in range(constants.ROWS):
+            for column in range(constants.ROWS):
+                if grid[row][column].nodetype not in excluded_nodetypes:
+                    grid[row][column].update(
+                        nodetype="blank", is_visited=False, is_path=False
+                    )
                 else:
-                    kwargs["fill"] = constants.EMPTY_COLOR
-                    kwargs["outline"] = constants.EMPTY_COLOR
-                self.can.create_rectangle(*args, **kwargs)
+                    grid[row][column].update(is_visited=False, is_path=False)
+        update_gui(draw_background=False, draw_buttons=False)
 
-    def find_path(self):
-        self.elem_list[self.cur_x][self.cur_y] = 2
-        self.zero_amount -= 1
-        while self.zero_amount > 0:
-            possible_list = self.check_valid()
-            if len(possible_list):
-                self.direction = random.choice(possible_list)
-                if len(possible_list) > 1:
-                    self.path_list.append([self.cur_x, self.cur_y])
-                self.set_path()
-                self.zero_amount -= 1
+    def update_path(algorithm_run=algorithm_run):
+        clear_visited()
+
+        valid_algorithms = ["dijkstra", "dfs", "bfs"]
+
+        assert (
+            algorithm_run in valid_algorithms
+        ), f"last algorithm used ({algorithm_run}) is not in valid algorithms: {valid_algorithms}"
+
+        if algorithm_run == "dijkstra":
+            path_found = dijkstra(
+                grid,
+                START_POINT,
+                END,
+            )
+        elif algorithm_run == "dfs":
+            path_found = xfs(
+                grid,
+                START_POINT,
+                END,
+                x="d",
+            )
+        elif algorithm_run == "bfs":
+            path_found = xfs(
+                grid,
+                START_POINT,
+                END,
+                x="b",
+            )
+        else:
+            path_found = False
+        return path_found
+
+    def dict_move(from_dict, to_dict, item):
+        to_dict[item] = from_dict[item]
+        from_dict.pop(item)
+        return from_dict, to_dict
+
+    def get_neighbours(
+        node,
+        max_width=constants.ROWS - 1,
+    ):
+        neighbours = (
+            ((min(max_width, node[0] + 1), node[1]), "+"),
+            ((max(0, node[0] - 1), node[1]), "+"),
+            ((node[0], min(max_width, node[1] + 1)), "+"),
+            ((node[0], max(0, node[1] - 1)), "+"),
+        )
+
+        return (neighbour for neighbour in neighbours if neighbour[0] != node)
+
+    def draw_square(row, column, grid=grid):
+        pygame.draw.rect(
+            screen,
+            grid[row][column].color,
+            [
+                (constants.CELL_MARGIN + constants.HEIGHT) * column
+                + constants.CELL_MARGIN,
+                (constants.CELL_MARGIN + constants.HEIGHT) * row
+                + constants.CELL_MARGIN,
+                constants.WIDTH,
+                constants.HEIGHT,
+            ],
+        )
+        pygame.event.pump()
+
+    def update_square(row, column):
+        pygame.display.update(
+            (constants.CELL_MARGIN + constants.WIDTH) * column + constants.CELL_MARGIN,
+            (constants.CELL_MARGIN + constants.HEIGHT) * row + constants.CELL_MARGIN,
+            constants.WIDTH,
+            constants.HEIGHT,
+        )
+        pygame.event.pump()
+
+    ### MAZE CREATION ALGORITHMS ###
+
+    def prim(mazearray=False, start_point=False):
+        if not mazearray:
+            mazearray = []
+            for row in range(constants.ROWS):
+                mazearray.append([])
+                for column in range(constants.ROWS):
+                    if row % 2 != 0 and column % 2 != 0:
+                        mazearray[row].append(Node("dormant"))
+                    else:
+                        mazearray[row].append(Node("wall"))
+                    draw_square(row, column, grid=mazearray)
+
+        n = len(mazearray) - 1
+
+        if not start_point:
+            start_point = (random.randrange(1, n, 2), random.randrange(1, n, 2))
+            mazearray[start_point[0]][start_point[1]].update(nodetype="blank")
+
+        draw_square(start_point[0], start_point[1], grid=mazearray)
+        pygame.display.flip()
+
+        walls = set()
+
+        starting_walls = get_neighbours(start_point, n)
+
+        for wall, ntype in starting_walls:
+            if mazearray[wall[0]][wall[1]].nodetype == "wall":
+                walls.add(wall)
+
+        while len(walls) > 0:
+            wall = random.choice(tuple(walls))
+            visited = 0
+            add_to_maze = []
+
+            for wall_neighbour, ntype in get_neighbours(wall, n):
+                if mazearray[wall_neighbour[0]][wall_neighbour[1]].nodetype == "blank":
+                    visited += 1
+
+            if visited <= 1:
+                mazearray[wall[0]][wall[1]].update(nodetype="blank")
+
+                draw_square(wall[0], wall[1], mazearray)
+                update_square(wall[0], wall[1])
+                time.sleep(0.0001)
+
+                for neighbour, ntype in get_neighbours(wall, n):
+                    if mazearray[neighbour[0]][neighbour[1]].nodetype == "dormant":
+                        add_to_maze.append((neighbour[0], neighbour[1]))
+
+                if len(add_to_maze) > 0:
+                    cell = add_to_maze.pop()
+                    mazearray[cell[0]][cell[1]].update(nodetype="blank")
+
+                    draw_square(cell[0], cell[1], mazearray)
+                    update_square(cell[0], cell[1])
+                    time.sleep(0.0001)
+
+                    for cell_neighbour, ntype in get_neighbours(cell, n):
+                        if (
+                            mazearray[cell_neighbour[0]][cell_neighbour[1]].nodetype
+                            == "wall"
+                        ):
+                            walls.add(cell_neighbour)
+
+            walls.remove(wall)
+
+        mazearray[END[0]][END[1]].update(nodetype="end")
+        mazearray[START_POINT[0]][START_POINT[1]].update(nodetype="start")
+
+        return mazearray
+
+    def gaps_to_offset():
+        return [x for x in range(2, constants.ROWS, 3)]
+
+    def recursive_division(chamber=None, gaps_to_offset=gaps_to_offset(), halving=True):
+        sleep = 0.001
+        sleep_walls = 0.001
+
+        if chamber == None:
+            chamber_width = len(grid)
+            chamber_height = len(grid[1])
+            chamber_left = 0
+            chamber_top = 0
+        else:
+            chamber_width = chamber[2]
+            chamber_height = chamber[3]
+            chamber_left = chamber[0]
+            chamber_top = chamber[1]
+
+        if halving:
+            x_divide = int(chamber_width / 2)
+            y_divide = int(chamber_height / 2)
+
+        if chamber_width < 3:
+            pass
+        else:
+            for y in range(chamber_height):
+                grid[chamber_left + x_divide][chamber_top + y].update(nodetype="wall")
+                draw_square(chamber_left + x_divide, chamber_top + y)
+                update_square(chamber_left + x_divide, chamber_top + y)
+                time.sleep(sleep_walls)
+
+        if chamber_height < 3:
+            pass
+        else:
+            for x in range(chamber_width):
+                grid[chamber_left + x][chamber_top + y_divide].update(nodetype="wall")
+                draw_square(chamber_left + x, chamber_top + y_divide)
+                update_square(chamber_left + x, chamber_top + y_divide)
+                time.sleep(sleep_walls)
+
+        if chamber_width < 3 and chamber_height < 3:
+            return
+
+        top_left = (chamber_left, chamber_top, x_divide, y_divide)
+        top_right = (
+            chamber_left + x_divide + 1,
+            chamber_top,
+            chamber_width - x_divide - 1,
+            y_divide,
+        )
+        bottom_left = (
+            chamber_left,
+            chamber_top + y_divide + 1,
+            x_divide,
+            chamber_height - y_divide - 1,
+        )
+        bottom_right = (
+            chamber_left + x_divide + 1,
+            chamber_top + y_divide + 1,
+            chamber_width - x_divide - 1,
+            chamber_height - y_divide - 1,
+        )
+
+        chambers = (top_left, top_right, bottom_left, bottom_right)
+
+        left = (chamber_left, chamber_top + y_divide, x_divide, 1)
+        right = (
+            chamber_left + x_divide + 1,
+            chamber_top + y_divide,
+            chamber_width - x_divide - 1,
+            1,
+        )
+        top = (chamber_left + x_divide, chamber_top, 1, y_divide)
+        bottom = (
+            chamber_left + x_divide,
+            chamber_top + y_divide + 1,
+            1,
+            chamber_height - y_divide - 1,
+        )
+
+        walls = (left, right, top, bottom)
+
+        gaps = 3
+        for wall in random.sample(walls, gaps):
+            if wall[3] == 1:
+                x = random.randrange(wall[0], wall[0] + wall[2])
+                y = wall[1]
+                if x in gaps_to_offset and y in gaps_to_offset:
+                    if wall[2] == x_divide:
+                        x -= 1
+                    else:
+                        x += 1
+                if x >= constants.ROWS:
+                    x = constants.ROWS - 1
             else:
-                path = random.choice(self.path_list)
-                self.path_list.remove(path)
-                self.cur_x = path[0]
-                self.cur_y = path[1]
+                x = wall[0]
+                y = random.randrange(wall[1], wall[1] + wall[3])
+                if y in gaps_to_offset and x in gaps_to_offset:
+                    if wall[3] == y_divide:
+                        y -= 1
+                    else:
+                        y += 1
+                if y >= constants.ROWS:
+                    y = constants.ROWS - 1
+            grid[x][y].update(nodetype="blank")
+            draw_square(x, y)
+            update_square(x, y)
+            time.sleep(sleep)
 
-    def check_valid(self):
-        temp_list = []
+        for chamber in enumerate(chambers):
+            recursive_division(chamber)
 
-        if self.cur_x + 1 != self.maze_width - 1:
-            if (
-                self.elem_list[self.cur_x + 1][self.cur_y] != 3
-                and self.elem_list[self.cur_x + 2][self.cur_y] != 2
-            ):
-                temp_list.append(0)
+    ### PATHFINDING ALGORITHMS ###
 
-        if self.cur_y + 1 != self.maze_height - 1:
-            if (
-                self.elem_list[self.cur_x][self.cur_y + 1] != 3
-                and self.elem_list[self.cur_x][self.cur_y + 2] != 2
-            ):
-                temp_list.append(1)
+    def dijkstra(
+        mazearray,
+        start_point=(0, 0),
+        goal_node=False,
+        display=pygame.display,
+    ):
+        heuristic = 0
+        distance = 0
 
-        if self.cur_x - 1 != 0:
-            if (
-                self.elem_list[self.cur_x - 1][self.cur_y] != 3
-                and self.elem_list[self.cur_x - 2][self.cur_y] != 2
-            ):
-                temp_list.append(2)
+        n = len(mazearray) - 1
 
-        if self.cur_y - 1 != 0:
-            if (
-                self.elem_list[self.cur_x][self.cur_y - 1] != 3
-                and self.elem_list[self.cur_x][self.cur_y - 2] != 2
-            ):
-                temp_list.append(3)
+        visited_nodes = set()
+        unvisited_nodes = set([(x, y) for x in range(n + 1) for y in range(n + 1)])
+        queue = AStarQueue()
 
-        return temp_list
+        queue.push(distance + heuristic, distance, start_point)
+        v_distances = {}
 
-    def set_path(self):
-        if self.direction == 0:
-            self.elem_list[self.cur_x + 1][self.cur_y] = 3
-            self.elem_list[self.cur_x + 2][self.cur_y] = 2
-            self.cur_x += 2
-        if self.direction == 1:
-            self.elem_list[self.cur_x][self.cur_y + 1] = 3
-            self.elem_list[self.cur_x][self.cur_y + 2] = 2
-            self.cur_y += 2
-        if self.direction == 2:
-            self.elem_list[self.cur_x - 1][self.cur_y] = 3
-            self.elem_list[self.cur_x - 2][self.cur_y] = 2
-            self.cur_x -= 2
-        if self.direction == 3:
-            self.elem_list[self.cur_x][self.cur_y - 1] = 3
-            self.elem_list[self.cur_x][self.cur_y - 2] = 2
-            self.cur_y -= 2
+        if not goal_node:
+            goal_node = (n, n)
+        priority, current_distance, current_node = queue.pop()
+        start = time.perf_counter()
 
-    def redefine(self):
-        for i in range(0, self.maze_width):
-            for j in range(0, self.maze_height):
-                if self.elem_list[i][j] == 2 or self.elem_list[i][j] == 3:
-                    self.elem_list[i][j] = 0
+        while current_node != goal_node and len(unvisited_nodes) > 0:
+            if current_node in visited_nodes:
+                if len(queue.show()) == 0:
+                    return False
+                else:
+                    priority, current_distance, current_node = queue.pop()
+                    continue
 
+            for neighbour in get_neighbours(current_node, n):
+                neighbours_loop(
+                    neighbour,
+                    mazearr=mazearray,
+                    visited_nodes=visited_nodes,
+                    unvisited_nodes=unvisited_nodes,
+                    queue=queue,
+                    v_distances=v_distances,
+                    current_node=current_node,
+                    current_distance=current_distance,
+                )
 
-sys.setrecursionlimit(constants.RECURSION_LIMIT)
-root = Tk()
-gui = MainFrame(root)
+            visited_nodes.add(current_node)
+            unvisited_nodes.discard(current_node)
 
-root.mainloop()
+            v_distances[current_node] = current_distance
+
+            if (current_node[0], current_node[1]) != start_point:
+                mazearray[current_node[0]][current_node[1]].update(is_visited=True)
+                draw_square(current_node[0], current_node[1], grid=mazearray)
+
+                update_square(current_node[0], current_node[1])
+                time.sleep(0.000001)
+
+            if len(queue.show()) == 0:
+                return False
+            else:
+                priority, current_distance, current_node = queue.pop()
+
+        v_distances[goal_node] = current_distance + (1)
+        visited_nodes.add(goal_node)
+
+        trace_back(
+            goal_node,
+            start_point,
+            v_distances,
+            visited_nodes,
+            n,
+            mazearray,
+        )
+
+        end = time.perf_counter()
+        num_visited = len(visited_nodes)
+        time_taken = end - start
+
+        print(
+            f"Program finished in {time_taken:.4f} seconds after checking {num_visited} nodes. That is {time_taken/num_visited:.8f} seconds per node."
+        )
+
+        return False if v_distances[goal_node] == float("inf") else True
+
+    def neighbours_loop(
+        neighbour,
+        mazearr,
+        visited_nodes,
+        unvisited_nodes,
+        queue,
+        v_distances,
+        current_node,
+        current_distance,
+    ):
+        neighbour, ntype = neighbour
+
+        heuristic = 0
+
+        if neighbour in visited_nodes:
+            pass
+        elif mazearr[neighbour[0]][neighbour[1]].nodetype == "wall":
+            visited_nodes.add(neighbour)
+            unvisited_nodes.discard(neighbour)
+        else:
+            modifier = mazearr[neighbour[0]][neighbour[1]].distance_modifier
+            if ntype == "+":
+                queue.push(
+                    current_distance + (1 * modifier) + heuristic,
+                    current_distance + (1 * modifier),
+                    neighbour,
+                )
+            elif ntype == "x":
+                queue.push(
+                    current_distance + ((2**0.5) * modifier) + heuristic,
+                    current_distance + ((2**0.5) * modifier),
+                    neighbour,
+                )
+
+    def trace_back(
+        goal_node,
+        start_node,
+        v_distances,
+        visited_nodes,
+        n,
+        mazearray,
+    ):
+        path = [goal_node]
+
+        current_node = goal_node
+
+        while current_node != start_node:
+            neighbour_distances = PriorityQueue()
+
+            neighbours = get_neighbours(
+                current_node,
+                n,
+            )
+
+            try:
+                distance = v_distances[current_node]
+            except Exception as e:
+                print(e)
+
+            for neighbour, ntype in neighbours:
+                if neighbour in v_distances:
+                    distance = v_distances[neighbour]
+                    neighbour_distances.push(distance, neighbour)
+
+            distance, smallest_neighbour = neighbour_distances.pop()
+            mazearray[smallest_neighbour[0]][smallest_neighbour[1]].update(is_path=True)
+
+            draw_square(smallest_neighbour[0], smallest_neighbour[1], grid=mazearray)
+
+            path.append(smallest_neighbour)
+            current_node = smallest_neighbour
+
+        pygame.display.flip()
+
+        mazearray[start_node[0]][start_node[1]].update(is_path=True)
+
+    def xfs(
+        mazearray,
+        start_point,
+        goal_node,
+        x,
+        display=pygame.display,
+    ):
+        assert x == "b" or x == "d", "x should equal 'b' or 'd' to make this bfs or dfs"
+
+        n = len(mazearray) - 1
+
+        mydeque = deque()
+        mydeque.append(start_point)
+        visited_nodes = set([])
+        path_dict = {start_point: None}
+
+        while len(mydeque) > 0:
+            if x == "d":
+                current_node = mydeque.pop()
+            elif x == "b":
+                current_node = mydeque.popleft()
+
+            if current_node == goal_node:
+                path_node = goal_node
+                while True:
+                    path_node = path_dict[path_node]
+                    mazearray[path_node[0]][path_node[1]].update(is_path=True)
+                    draw_square(path_node[0], path_node[1], grid=mazearray)
+                    update_square(path_node[0], path_node[1])
+                    if path_node == start_point:
+                        return True
+
+            if mazearray[current_node[0]][current_node[1]].nodetype == "wall":
+                continue
+
+            if current_node not in visited_nodes:
+                visited_nodes.add(current_node)
+                mazearray[current_node[0]][current_node[1]].update(is_visited=True)
+                draw_square(current_node[0], current_node[1], grid=mazearray)
+                update_square(current_node[0], current_node[1])
+                time.sleep(0.001)
+
+                for neighbour, ntype in get_neighbours(current_node, n):
+                    mydeque.append(neighbour)
+                    if neighbour not in visited_nodes:
+                        path_dict[neighbour] = current_node
+
+        pygame.display.flip()
+        return False
+
+    grid[START_POINT[0]][START_POINT[1]].update(nodetype="start")
+    grid[END[0]][END[1]].update(nodetype="end")
+
+    def update_gui(draw_background=True, draw_buttons=True, draw_grid=True):
+        if draw_background:
+            screen.fill(colors.BLACK)
+            pass
+
+        if draw_buttons:
+            dijkstraButton.draw(screen, (0, 0, 0))
+            dfsButton.draw(screen, (0, 0, 0))
+            bfsButton.draw(screen, (0, 0, 0))
+            resetButton.draw(screen, (0, 0, 0))
+            mazeButton.draw(screen, (0, 0, 0))
+
+        if draw_grid:
+            for row in range(constants.ROWS):
+                for column in range(constants.ROWS):
+                    color = grid[row][column].color
+                    draw_square(row, column)
+
+    update_gui()
+
+    pygame.display.flip()
+
+    clock.tick(60)
+    # endregion
+pygame.quit()

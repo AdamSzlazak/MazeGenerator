@@ -1,16 +1,14 @@
-FONT = "Times New Roman"
-WALL_COLOR = "black"
-PATH_COLOR = "green"
-EMPTY_COLOR = "#ddd"
-RECURSION_LIMIT = 4000
-WINDOW_WIDTH = 500
-WINDOW_HEIGHT = 500
+class constants:
+    HEIGHT = WIDTH = 7
+    BUTTON_HEIGHT = 50
+    CELL_MARGIN = 0
+    ROWS = 92
 
 
-class T:
-    MAZE = "Maze"
-    MAIN_TEXT = "Choose size of the labyrinth"
-    SHOW_SOLUTION = "Show solution"
-    DONT_SHOW_SOLUTION = "Don't show solution"
-    GENERATE = "Generate"
-    ALLOWED_SIZE_LIMIT = "Allowed size of Labyrinth is from 2x2 to 128x128"
+class colors:
+    WHITE = (255, 255, 255)
+    RED = (255, 0, 0)
+    GREEN = (0, 255, 0)
+    BLUE = (0, 0, 255)
+    BLACK = (0, 0, 0)
+    GREY = (143, 143, 143)
